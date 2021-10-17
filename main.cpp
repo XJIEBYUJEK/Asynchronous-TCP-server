@@ -8,19 +8,20 @@
 #include <boost/algorithm/string/trim.hpp>
 #include <sys/wait.h>
 #include <map>
+#include <charconv>
 
 class Command
 {
 public:
     int             ExitStatus = 0;
     std::string     Command;
-    std::string     StdIn;
     std::string     StdOut;
     std::string     StdErr;
 
     void execute()
     {
         StdOut = "";
+        StdErr = "";
 
         const int READ_END = 0;
         const int WRITE_END = 1;
@@ -73,11 +74,6 @@ public:
             ::close(infd[READ_END]);    // Parent does not read from stdin
             ::close(outfd[WRITE_END]);  // Parent does not write to stdout
             ::close(errfd[WRITE_END]);  // Parent does not write to stderr
-
-            if(::write(infd[WRITE_END], StdIn.data(), StdIn.size()) < 0)
-            {
-                throw std::runtime_error(std::strerror(errno));
-            }
             ::close(infd[WRITE_END]); // Done writing
         }
         else if(pid == 0) // CHILD
@@ -157,7 +153,6 @@ public:
         outputline = "Connected to Telnet server!\nUse \"!help\" for help\n\n";
         write();
         read();
-
     }
 
 private:
@@ -176,10 +171,14 @@ private:
 
     void read()
     {
-        boost::asio::async_read_until(socket_, input, "\n", boost::bind(&tcp_connection::handle_read, shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
+        boost::asio::async_read_until(socket_, input, "\n",
+                                      boost::bind(&tcp_connection::handle_read, shared_from_this(),
+                                                  boost::asio::placeholders::error,
+                                                  boost::asio::placeholders::bytes_transferred));
     }
 
-    void handle_read(boost::system::error_code error, std::size_t bytes_transferred)
+    void handle_read(boost::system::error_code error,
+                     std::size_t bytes_transferred)
     {
         if (!error)
         {
@@ -216,6 +215,8 @@ private:
                         else{
                             outputline = "Something went wrong\n\n";
                             write();
+                            outputline = cmd.StdErr + "\n";
+                            write();
                         }
                         break;
                 }
@@ -231,7 +232,8 @@ private:
     {
     }
 
-    void stop(){
+    void stop()
+    {
         socket_.close();
     }
     std::map <std::string, int> commands;
@@ -246,9 +248,9 @@ private:
 class tcp_server
 {
 public:
-    tcp_server(boost::asio::io_service& io_service)
+    tcp_server(boost::asio::io_service& io_service, int port)
             : io_service_(io_service),
-              acceptor_(io_service, boost::asio::ip::tcp::endpoint(boost::asio::ip::tcp::v4(), 3030))
+              acceptor_(io_service, boost::asio::ip::tcp::endpoint(boost::asio::ip::tcp::v4(), port))
     {
         start_accept();
     }
@@ -279,12 +281,24 @@ private:
     boost::asio::ip::tcp::acceptor acceptor_;
 };
 
-int main()
+int main(int argc, char* argv[])
 {
+    int port;
+    int number_of_treads;
+    std::from_chars<int>(argv[1],argv[2], port);
+    std::from_chars<int>(argv[2],argv[3], number_of_treads);
     try
     {
         boost::asio::io_service io_service;
-        tcp_server server(io_service);
+        tcp_server server(io_service, port);
+        std::vector<std::thread> threads;
+        threads.reserve(number_of_treads - 1);
+        for(int i = 1; i < number_of_treads; ++i) {
+            threads.emplace_back([&io_service]{
+                io_service.run();
+            });
+            //std::cout << "Added thread\n";
+        }
         io_service.run();
     }
     catch (std::exception& e)
