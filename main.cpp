@@ -138,9 +138,9 @@ class tcp_connection
 public:
     typedef boost::shared_ptr<tcp_connection> pointer;
 
-    static pointer create(boost::asio::io_service& io_service)
+    static pointer create(boost::asio::io_context& io_context)
     {
-        return pointer(new tcp_connection(io_service));
+        return pointer(new tcp_connection(io_context));
     }
 
     boost::asio::ip::tcp::socket& socket()
@@ -156,8 +156,8 @@ public:
     }
 
 private:
-    tcp_connection(boost::asio::io_service& io_service)
-            : socket_(io_service)
+    tcp_connection(boost::asio::io_context& io_context)
+            : socket_(io_context)
     {
     }
 
@@ -248,9 +248,9 @@ private:
 class tcp_server
 {
 public:
-    tcp_server(boost::asio::io_service& io_service, int port)
-            : io_service_(io_service),
-              acceptor_(io_service, boost::asio::ip::tcp::endpoint(boost::asio::ip::tcp::v4(), port))
+    tcp_server(boost::asio::io_context& io_context, int port)
+            : io_context_(io_context),
+              acceptor_(io_context, boost::asio::ip::tcp::endpoint(boost::asio::ip::tcp::v4(), port))
     {
         start_accept();
     }
@@ -259,7 +259,7 @@ private:
     void start_accept()
     {
         tcp_connection::pointer new_connection =
-                tcp_connection::create(io_service_);
+                tcp_connection::create(io_context_);
 
         acceptor_.async_accept(new_connection->socket(),
                                boost::bind(&tcp_server::handle_accept, this, new_connection,
@@ -277,7 +277,7 @@ private:
         start_accept();
     }
 
-    boost::asio::io_service& io_service_;
+    boost::asio::io_context& io_context_;
     boost::asio::ip::tcp::acceptor acceptor_;
 };
 
@@ -289,17 +289,17 @@ int main(int argc, char* argv[])
     std::from_chars<int>(argv[2],argv[3], number_of_treads);
     try
     {
-        boost::asio::io_service io_service;
-        tcp_server server(io_service, port);
+        boost::asio::io_context io_context;
+        tcp_server server(io_context, port);
         std::vector<std::thread> threads;
         threads.reserve(number_of_treads - 1);
         for(int i = 1; i < number_of_treads; ++i) {
-            threads.emplace_back([&io_service]{
-                io_service.run();
+            threads.emplace_back([&io_context]{
+                io_context.run();
             });
             //std::cout << "Added thread\n";
         }
-        io_service.run();
+        io_context.run();
     }
     catch (std::exception& e)
     {
